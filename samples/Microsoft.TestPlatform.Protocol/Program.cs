@@ -142,7 +142,7 @@ namespace Microsoft.TestPlatform.Protocol
             if (message.MessageType == MessageType.SessionConnected)
             {
                 // Version Check
-                communicationManager.SendMessage(MessageType.VersionCheck);
+                communicationManager.SendMessage(MessageType.VersionCheck, 1);
                 message = communicationManager.ReceiveMessage();
 
                 if (message.MessageType == MessageType.VersionCheck)

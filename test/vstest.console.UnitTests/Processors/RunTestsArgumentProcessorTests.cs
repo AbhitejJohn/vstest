@@ -202,6 +202,17 @@ namespace Microsoft.VisualStudio.TestPlatform.CommandLine.UnitTests.Processors
         }
 
         [TestMethod]
+        public void ExecutorExecuteShouldConsiderTestCaseFilter()
+        {
+            var mockTestRunRequest = new Mock<ITestRunRequest>();
+
+            var result = this.RunRunArgumentProcessorExecuteWithMockSetup(mockTestRunRequest.Object);
+
+            mockTestRunRequest.Verify(tr => tr.ExecuteAsync(), Times.Once);
+            Assert.AreEqual(ArgumentProcessorResult.Success, result);
+        }
+
+        [TestMethod]
         public void TestRunRequestManagerShouldInstrumentExecutionRequestStart()
         {
             var mockTestRunRequest = new Mock<ITestRunRequest>();

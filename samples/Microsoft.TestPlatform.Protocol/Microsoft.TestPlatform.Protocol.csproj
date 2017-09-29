@@ -5,6 +5,9 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="Communication\SocketCommunicationManagerv2.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="System.Runtime.InteropServices.RuntimeInformation" Version="4.3.0" />
     <PackageReference Include="Newtonsoft.Json">
       <Version>9.0.1</Version>

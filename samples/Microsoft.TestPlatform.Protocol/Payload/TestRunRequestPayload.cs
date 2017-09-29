@@ -40,5 +40,8 @@ namespace Microsoft.TestPlatform.Protocol
         /// </summary>
         [DataMember]
         public bool DebuggingEnabled { get; set; }
+
+        //[DataMember]
+        //public string TestCaseFilter { get; set; }
     }
 }

@@ -46,13 +46,14 @@ namespace Microsoft.TestPlatform.Protocol
         public void StartProcess(string[] args)
         {
             this.process = new Process();
-            process.StartInfo.FileName = GetDotnetHostFullPath();
-            
+            process.StartInfo.FileName = @"E:\git\vstest\tools\dotnet\dotnet.exe";//GetDotnetHostFullPath();
+
+
             if (args != null)
             {
                 process.StartInfo.Arguments = args.Length < 2 ? args[0] : string.Join(" ", args);
             }
-            process.StartInfo.Arguments = "vstest" + " " + process.StartInfo.Arguments;
+            process.StartInfo.Arguments = @"E:\git\vstest\artifacts\Debug\netcoreapp2.0\vstest.console.dll" + " " + process.StartInfo.Arguments;
 
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.CreateNoWindow = true;
