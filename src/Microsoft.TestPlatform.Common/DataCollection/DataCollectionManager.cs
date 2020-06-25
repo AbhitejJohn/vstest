@@ -6,7 +6,9 @@ namespace Microsoft.VisualStudio.TestPlatform.Common.DataCollector
     using System;
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
+    using System.Diagnostics;
     using System.Globalization;
+    using System.IO;
     using System.Linq;
 
     using Microsoft.VisualStudio.TestPlatform.Common.DataCollector.Interfaces;
@@ -633,10 +635,13 @@ namespace Microsoft.VisualStudio.TestPlatform.Common.DataCollector
             DataCollectorInformation dataCollectionWrapper,
             Dictionary<string, DataCollectionEnvironmentVariable> dataCollectorEnvironmentVariables)
         {
-            if (dataCollectionWrapper.TestExecutionEnvironmentVariables != null)
+            Debugger.Launch();
+            var envVariablesToConfigure = this.AccomodateProfilerChaining(dataCollectionWrapper, dataCollectorEnvironmentVariables);
+
+            if (envVariablesToConfigure != null)
             {
                 var collectorFriendlyName = dataCollectionWrapper.DataCollectorConfig.FriendlyName;
-                foreach (var namevaluepair in dataCollectionWrapper.TestExecutionEnvironmentVariables)
+                foreach (var namevaluepair in envVariablesToConfigure)
                 {
                     DataCollectionEnvironmentVariable alreadyRequestedVariable;
                     if (dataCollectorEnvironmentVariables.TryGetValue(namevaluepair.Key, out alreadyRequestedVariable))
@@ -675,6 +680,109 @@ namespace Microsoft.VisualStudio.TestPlatform.Common.DataCollector
                     }
                 }
             }
+        }
+
+        private const string CoreCLRProfilerKey = "CORECLR_PROFILER";
+        private const string CLRInstrumentationEngineProfilerGuid = "{324F817A-7420-4E6D-B3C1-143FBED6D855}";
+        private const string CoreCLRProfilerPath32Key = "CORECLR_PROFILER_PATH_32";
+        private const string CoreCLRProfilerPath64Key = "CORECLR_PROFILER_PATH_64";
+        private const string CoreCLREnableProfilingKey = "CORECLR_ENABLE_PROFILING";
+        private const string CLRProfilerKey = "COR_PROFILER";
+        private const string CLRProfilerPath32Key = "COR_PROFILER_PATH_32";
+        private const string CLRProfilerPath64Key = "COR_PROFILER_PATH_64";
+        private const string CLREnableProfilingKey = "COR_ENABLE_PROFILING";
+        private const string RawProfilerHookKey = "MicrosoftInstrumentationEngine_RawProfilerHook";
+        private const string RawProfilerHookPath32Key = "MicrosoftInstrumentationEngine_RawProfilerHookPath_32";
+        private const string RawProfilerHookPath64Key = "MicrosoftInstrumentationEngine_RawProfilerHookPath_64";
+        private const string IntelliTraceProfilerDirectory = "INTELLITRACE_PROFILER_DIRECTORY";
+        private const string IntelliTraceProfilerPath32 = "Microsoft.IntelliTrace.Profiler.dll";
+        private const string IntelliTraceProfilerPath64 = "x64\\Microsoft.IntelliTrace.Profiler.dll";
+        private static Dictionary<string, string> profilerVarMap = new Dictionary<string, string> {
+            { CoreCLRProfilerKey, RawProfilerHookKey },
+            { CoreCLRProfilerPath32Key, RawProfilerHookPath32Key },
+            { CoreCLRProfilerPath64Key, RawProfilerHookPath64Key },
+            { CLRProfilerKey, RawProfilerHookKey },
+            { CLRProfilerPath32Key, RawProfilerHookPath32Key },
+            { CLRProfilerPath64Key, RawProfilerHookPath64Key }};
+
+        private IEnumerable<KeyValuePair<string, string>> AccomodateProfilerChaining(DataCollectorInformation dataCollectionWrapper, Dictionary<string, DataCollectionEnvironmentVariable> dataCollectorEnvironmentVariables)
+        {
+            // If chaining is already enabled, bail - We only support chaining of one additional profiler.
+            if (dataCollectorEnvironmentVariables.ContainsKey(RawProfilerHookKey))
+            {
+                return dataCollectionWrapper.TestExecutionEnvironmentVariables;
+            }
+
+            var profilerEnvVar = dataCollectionWrapper.TestExecutionEnvironmentVariables.FirstOrDefault(kvp => string.Equals(kvp.Key, CoreCLRProfilerKey, StringComparison.OrdinalIgnoreCase)
+                                                                                                                || string.Equals(kvp.Key, CLRProfilerKey, StringComparison.OrdinalIgnoreCase));
+
+            if (profilerEnvVar.Equals(default(KeyValuePair<string, string>)))
+            {
+                return dataCollectionWrapper.TestExecutionEnvironmentVariables;
+            }
+
+            if (dataCollectorEnvironmentVariables.TryGetValue(CLRProfilerKey, out var alreadyConfiguredProfilerEnvVar)
+                || dataCollectorEnvironmentVariables.TryGetValue(CoreCLRProfilerKey, out alreadyConfiguredProfilerEnvVar)) 
+            { 
+                var isCurrentConfigurationCLRIE = string.Equals(profilerEnvVar.Value, CLRInstrumentationEngineProfilerGuid, StringComparison.OrdinalIgnoreCase);
+                var isCLRIEAlreadyConfigured = string.Equals(alreadyConfiguredProfilerEnvVar.Value, CLRInstrumentationEngineProfilerGuid, StringComparison.OrdinalIgnoreCase);
+
+                // TODO: what happens if both are based on top of CLRIE - we shouldn't be showing a warning.
+                if (isCurrentConfigurationCLRIE && isCLRIEAlreadyConfigured)
+                {
+                    return dataCollectionWrapper.TestExecutionEnvironmentVariables;
+                }
+
+                if (isCurrentConfigurationCLRIE)
+                {
+                    void ReMapEnvironmentVariable(Dictionary<string, DataCollectionEnvironmentVariable> variables, string currentEnvVar, string newEnvVar)
+                    {
+                        if (variables.TryGetValue(currentEnvVar, out var value))
+                        {
+                            variables[newEnvVar] = value;
+                            variables.Remove(currentEnvVar);
+                        }
+                    }
+
+                    // Re-route any existing configuration with the Raw profiler hook.
+                    ReMapEnvironmentVariable(dataCollectorEnvironmentVariables, CLRProfilerKey, RawProfilerHookKey);
+                    ReMapEnvironmentVariable(dataCollectorEnvironmentVariables, CLRProfilerPath32Key, RawProfilerHookPath32Key);
+                    ReMapEnvironmentVariable(dataCollectorEnvironmentVariables, CLRProfilerPath64Key, RawProfilerHookPath64Key);
+                    ReMapEnvironmentVariable(dataCollectorEnvironmentVariables, CoreCLRProfilerKey, RawProfilerHookKey); // TODO prevent overwrite. Only happens if both are set today.
+                    ReMapEnvironmentVariable(dataCollectorEnvironmentVariables, CoreCLRProfilerPath32Key, RawProfilerHookPath32Key);
+                    ReMapEnvironmentVariable(dataCollectorEnvironmentVariables, CoreCLRProfilerPath64Key, RawProfilerHookPath64Key);
+
+                    if (dataCollectorEnvironmentVariables.TryGetValue(IntelliTraceProfilerDirectory, out var intellitraceEnv))
+                    {
+                        dataCollectorEnvironmentVariables[RawProfilerHookPath32Key] = new DataCollectionEnvironmentVariable(
+                            new KeyValuePair<string, string>(RawProfilerHookPath32Key, Path.Combine(intellitraceEnv.Value, IntelliTraceProfilerPath32)), intellitraceEnv.FirstDataCollectorThatRequested);
+                        dataCollectorEnvironmentVariables[RawProfilerHookPath64Key] = new DataCollectionEnvironmentVariable(
+                            new KeyValuePair<string, string>(RawProfilerHookPath32Key, Path.Combine(intellitraceEnv.Value, IntelliTraceProfilerPath64)), intellitraceEnv.FirstDataCollectorThatRequested);
+                    }
+                    
+                    return dataCollectionWrapper.TestExecutionEnvironmentVariables;
+                }
+
+                if (isCLRIEAlreadyConfigured)
+                {
+                    var modifiedEnvironmentVariables = new List<KeyValuePair<string, string>>();
+                    foreach (var kvp in dataCollectionWrapper.TestExecutionEnvironmentVariables)
+                    {
+                        if (profilerVarMap.TryGetValue(kvp.Key, out var mappedKey))
+                        {
+                            modifiedEnvironmentVariables.Add(new KeyValuePair<string, string>(mappedKey, kvp.Value));
+                        }
+                        else
+                        {
+                            modifiedEnvironmentVariables.Add(kvp);
+                        }
+                    }
+
+                    return modifiedEnvironmentVariables;
+                }
+            }
+
+            return dataCollectionWrapper.TestExecutionEnvironmentVariables;
         }
 
         /// <summary>
